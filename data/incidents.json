@@ -1,0 +1,66 @@
+[
+    {
+        "timestamp": "2026-01-01 10:30:00",
+        "metric": "cpu_usage",
+        "value": 95.5,
+        "description": "CPU usage spiked to 95.5% due to a runaway background process consuming excessive resources. The issue was resolved by identifying and terminating the rogue process.",
+        "resolution": "Terminated background process ID 1234, implemented resource limits",
+        "severity": "high"
+    },
+    {
+        "timestamp": "2026-01-02 14:15:00",
+        "metric": "memory_usage",
+        "value": 92.3,
+        "description": "Memory usage reached 92.3% causing system slowdown. Investigation revealed a memory leak in the application cache that was not being cleared properly.",
+        "resolution": "Restarted application, fixed cache clearing logic, added monitoring",
+        "severity": "high"
+    },
+    {
+        "timestamp": "2026-01-03 08:45:00",
+        "metric": "cpu_usage",
+        "value": 88.7,
+        "description": "High CPU usage at 88.7% detected during backup process. This is expected behavior during scheduled backups but triggered the threshold alert.",
+        "resolution": "Adjusted alert threshold for backup windows, no action needed",
+        "severity": "medium"
+    },
+    {
+        "timestamp": "2026-01-04 16:20:00",
+        "metric": "memory_usage",
+        "value": 85.2,
+        "description": "Memory usage increased to 85.2% due to large dataset being loaded into memory for processing. System recovered after processing completed.",
+        "resolution": "Optimized data loading to use chunking, added swap space",
+        "severity": "medium"
+    },
+    {
+        "timestamp": "2026-01-05 11:00:00",
+        "metric": "cpu_usage",
+        "value": 78.5,
+        "description": "Moderate CPU spike to 78.5% caused by multiple concurrent user requests during peak hours. System remained responsive but nearing capacity.",
+        "resolution": "Scaled up worker processes, implemented request queuing",
+        "severity": "low"
+    },
+    {
+        "timestamp": "2026-01-06 09:30:00",
+        "metric": "memory_usage",
+        "value": 75.8,
+        "description": "Memory usage at 75.8% due to accumulated log files and temporary data. Regular cleanup process had failed to run.",
+        "resolution": "Manually cleared old logs, fixed cron job for automatic cleanup",
+        "severity": "low"
+    },
+    {
+        "timestamp": "2026-01-07 13:45:00",
+        "metric": "cpu_usage",
+        "value": 91.2,
+        "description": "CPU usage spiked to 91.2% due to antivirus scan running during business hours. Scan was scheduled improperly.",
+        "resolution": "Rescheduled antivirus scans to off-peak hours",
+        "severity": "medium"
+    },
+    {
+        "timestamp": "2026-01-08 07:15:00",
+        "metric": "memory_usage",
+        "value": 88.9,
+        "description": "Memory usage reached 88.9% when database query returned unexpectedly large result set. Query needed optimization.",
+        "resolution": "Added pagination to query, optimized indexes, added result size limits",
+        "severity": "high"
+    }
+]

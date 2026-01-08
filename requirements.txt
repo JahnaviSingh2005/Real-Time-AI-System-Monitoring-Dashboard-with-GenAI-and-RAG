@@ -1,0 +1,27 @@
+# Core Dashboard
+streamlit
+
+# System Monitoring
+psutil
+
+# Data Processing
+pandas
+numpy
+
+# Visualization
+plotly
+matplotlib
+
+# Machine Learning
+scikit-learn
+
+# Vector Database for RAG
+chromadb
+sentence-transformers
+
+# GenAI - Using free/local models (optional, can add later)
+# transformers
+# torch
+
+# Utilities
+python-dotenv
