@@ -17,6 +17,7 @@ import pandas as pd
 from datetime import datetime
 import sys
 import os
+import json
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -31,6 +32,7 @@ from src.utils.helpers import (
     create_gauge_chart, create_time_series_chart, create_multi_metric_chart,
     format_alert_message, get_health_status, calculate_trend, get_trend_emoji
 )
+from src.utils.storage import IncidentStorage
 
 # Page configuration
 st.set_page_config(
@@ -118,11 +120,18 @@ def initialize_session_state():
     if 'chat_interface' not in st.session_state:
         st.session_state.chat_interface = ChatInterface(st.session_state.rag_system)
     
+    if 'storage' not in st.session_state:
+        st.session_state.storage = IncidentStorage()
+        
     if 'ml_trained' not in st.session_state:
         st.session_state.ml_trained = False
     
     if 'chat_messages' not in st.session_state:
         st.session_state.chat_messages = []
+
+    # Incident Tracking
+    if 'active_incident' not in st.session_state:
+        st.session_state.active_incident = None # {start, alerts, metrics}
 
 
 # Main app
@@ -132,21 +141,27 @@ def main():
     initialize_session_state()
     
     # Header
-    st.markdown('<div class="main-header">🖥️ AI System Monitoring Dashboard</div>', 
+    st.markdown('<div class="main-header">🖥️ AI System Monitoring Dashboard EXT</div>', 
                 unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Settings")
+        st.header("⚙️ Global Settings")
         
         # Refresh interval
         refresh_interval = st.slider(
-            "Refresh Interval (seconds)",
-            min_value=1,
-            max_value=10,
-            value=3,
-            help="How often to update metrics"
+            "Refresh (sec)", 1, 10, 3
         )
+
+        st.divider()
+        st.header("🔔 Alert Thresholds")
+        st.session_state.cpu_threshold = st.slider("CPU Threshold (%)", 50, 95, 85)
+        st.session_state.mem_threshold = st.slider("Memory Threshold (%)", 50, 95, 85)
+        st.session_state.top_n = st.number_input("Top Processes Count", 3, 15, 5)
+
+        # Update alert system thresholds
+        st.session_state.alert_system.set_threshold('cpu_percent', 'high', float(st.session_state.cpu_threshold))
+        st.session_state.alert_system.set_threshold('memory_percent', 'high', float(st.session_state.mem_threshold))
         
         # Auto-train ML model
         if st.button("🤖 Train ML Model"):
@@ -181,11 +196,12 @@ def main():
         st.text(f"Incidents: {stats['total_incidents']}")
     
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Live Monitoring", 
         "🔍 Anomaly Detection", 
         "💬 Chat Assistant",
-        "📖 About"
+        "� Incident Replay",
+        "�📖 About"
     ])
     
     # Tab 1: Live Monitoring
@@ -200,8 +216,12 @@ def main():
     with tab3:
         show_chat_interface()
     
-    # Tab 4: About
+    # Tab 4: Incident Replay
     with tab4:
+        show_incident_replay()
+    
+    # Tab 5: About
+    with tab5:
         show_about()
     
     # Auto-refresh
@@ -212,31 +232,58 @@ def main():
 def show_live_monitoring():
     """Display live monitoring tab"""
     
-    # Collect current metrics
-    current_metrics = st.session_state.metrics_collector.collect_current_metrics()
+    # Collect current metrics with user-configured top N
+    top_n = st.session_state.get('top_n', 5)
+    current_metrics = st.session_state.metrics_collector.collect_current_metrics(top_n_procs=top_n)
     
-    # Calculate health status
+    # Persist to SQLite
+    st.session_state.storage.save_metrics(current_metrics)
+
+    # Calculate health status with user thresholds
     health = get_health_status(
         current_metrics['cpu_percent'],
         current_metrics['memory_percent'],
-        current_metrics['disk_percent']
+        current_metrics['disk_percent'],
+        cpu_threshold=st.session_state.get('cpu_threshold', 85.0),
+        mem_threshold=st.session_state.get('mem_threshold', 85.0)
     )
     
     # Display health status
     st.markdown(f"## {health['emoji']} System Health: {health['status']}")
     st.markdown(f"**Score:** {health['score']}/100 - {health['message']}")
     
+    # FEATURE 1: Top Resource-Consuming Processes
+    st.subheader("🔝 Top Resource-Consuming Processes")
+    proc_col1, proc_col2 = st.columns(2)
+    
+    with proc_col1:
+        st.markdown("**CPU Intensive**")
+        cpu_procs = current_metrics.get('top_cpu_processes', [])
+        if cpu_procs:
+            df_cpu = pd.DataFrame(cpu_procs)
+            st.table(df_cpu[['name', 'pid', 'cpu_percent']])
+            
+    with proc_col2:
+        st.markdown("**Memory Intensive**")
+        mem_procs = current_metrics.get('top_memory_processes', [])
+        if mem_procs:
+            df_mem = pd.DataFrame(mem_procs)
+            st.table(df_mem[['name', 'pid', 'memory_percent']])
+
     st.divider()
     
     # Gauges for current metrics
+    cpu_t = st.session_state.get('cpu_threshold', 85.0)
+    mem_t = st.session_state.get('mem_threshold', 85.0)
+    
     col1, col2, col3 = st.columns(3)
     
     with col1:
         fig_cpu = create_gauge_chart(
             current_metrics['cpu_percent'],
             "CPU Usage",
-            threshold_yellow=70,
-            threshold_red=85
+            threshold_yellow=cpu_t * 0.8,
+            threshold_red=cpu_t
         )
         st.plotly_chart(fig_cpu, use_container_width=True)
         
@@ -250,8 +297,8 @@ def show_live_monitoring():
         fig_mem = create_gauge_chart(
             current_metrics['memory_percent'],
             "Memory Usage",
-            threshold_yellow=75,
-            threshold_red=85
+            threshold_yellow=mem_t * 0.8,
+            threshold_red=mem_t
         )
         st.plotly_chart(fig_mem, use_container_width=True)
         
@@ -315,20 +362,61 @@ def show_live_monitoring():
 
 
 def show_anomaly_detection():
-    """Display anomaly detection tab"""
+    """Display anomaly detection tab with incident tracking"""
     
     st.header("🔍 Anomaly Detection")
     
     current_metrics = st.session_state.metrics_collector.get_latest_metrics()
-    
     if not current_metrics:
         st.warning("No metrics available yet. Please wait...")
         return
     
-    # Rule-based detection
+    # ML condition
+    is_ml_anomaly = False
+    score = 0
+    if st.session_state.ml_trained:
+        is_ml_anomaly, score = st.session_state.ml_detector.predict(current_metrics)
+
+    # Rule-based alerts
     st.subheader("📋 Rule-Based Alerts")
     alerts = st.session_state.alert_system.check_all_metrics(current_metrics)
     
+    # Persistence & Incident Tracking
+    if alerts or is_ml_anomaly:
+        # Save each alert to permanent storage
+        for alert in alerts:
+            st.session_state.storage.save_alert(alert.to_dict())
+            
+        # Start or continue incident
+        if st.session_state.active_incident is None:
+            st.session_state.active_incident = {
+                'start_time': datetime.now(),
+                'alerts': [a.to_dict() for a in alerts],
+                'metrics_history': [current_metrics]
+            }
+        else:
+            st.session_state.active_incident['alerts'].extend([a.to_dict() for a in alerts])
+            st.session_state.active_incident['metrics_history'].append(current_metrics)
+    else:
+        # Check if an incident just ended
+        if st.session_state.active_incident is not None:
+            inc = st.session_state.active_incident
+            inc['end_time'] = datetime.now()
+            summary = f"Incident with {len(inc['alerts'])} alerts."
+            
+            # Save to SQLite
+            st.session_state.storage.create_incident(
+                inc['start_time'], inc['end_time'], summary, inc['alerts']
+            )
+            
+            # Auto-generate report (internal storage)
+            report = st.session_state.explainer.generate_incident_report(inc)
+            st.session_state.last_report = report
+            
+            # Reset active incident
+            st.session_state.active_incident = None
+            st.success("🏁 Incident ended. Report generated!")
+
     if alerts:
         for alert in alerts:
             alert_dict = alert.to_dict()
@@ -342,62 +430,32 @@ def show_anomaly_detection():
     
     st.divider()
     
-    # ML-based detection
+    # ML-based detection UI
     st.subheader("🤖 ML-Based Anomaly Detection")
-    
     if st.session_state.ml_trained:
-        is_anomaly, score = st.session_state.ml_detector.predict(current_metrics)
-        
         col1, col2 = st.columns(2)
-        
         with col1:
-            if is_anomaly:
-                st.error("🚨 **Anomaly Detected!**")
-            else:
-                st.success("✅ **Normal Behavior**")
-        
+            if is_ml_anomaly: st.error("🚨 **Anomaly Detected!**")
+            else: st.success("✅ **Normal Behavior**")
         with col2:
             st.metric("Anomaly Score", f"{score:.3f}")
-            st.caption("More negative = more anomalous")
-        
-        # Show recent anomalies
-        recent_anomalies = st.session_state.ml_detector.get_recent_anomalies(5)
-        if recent_anomalies:
-            with st.expander("Recent ML Anomalies"):
-                st.dataframe(pd.DataFrame(recent_anomalies))
     else:
-        st.info("ℹ️ ML model not trained yet. Click 'Train ML Model' in sidebar after collecting some data.")
+        st.info("ℹ️ ML model not trained yet.")
     
     st.divider()
     
     # GenAI Explanation
     st.subheader("🤖 AI-Generated Explanation")
-    
-    if alerts or (st.session_state.ml_trained and is_anomaly):
+    if alerts or (st.session_state.ml_trained and is_ml_anomaly):
         explanation = st.session_state.explainer.explain_anomaly(
             current_metrics,
-            is_ml_anomaly=is_anomaly if st.session_state.ml_trained else False,
+            is_ml_anomaly=is_ml_anomaly if st.session_state.ml_trained else False,
             anomaly_score=score if st.session_state.ml_trained else 0,
             alerts=[a.to_dict() for a in alerts]
         )
         st.markdown(explanation)
-        
-        # RAG Context
-        st.divider()
-        st.subheader("📚 Similar Past Incidents")
-        
-        context = st.session_state.rag_system.get_context_for_anomaly(current_metrics, alerts)
-        st.markdown(context)
     else:
         st.info("No anomalies detected. System is operating normally.")
-        
-        # Show summary
-        df = st.session_state.metrics_collector.get_metrics_dataframe()
-        if not df.empty:
-            summary = st.session_state.explainer.generate_summary(
-                df.tail(20).to_dict('records')
-            )
-            st.markdown(summary)
 
 
 def show_chat_interface():
@@ -585,10 +643,68 @@ def show_about():
     
     ---
     
-    **Version**: 1.0.0  
+    **Version**: 1.0.1 (Extended)
     **License**: MIT  
     **CPU-Only**: Yes, runs without GPU  
     """)
+
+
+def show_incident_replay():
+    """Display incident replay tab"""
+    st.header("🕒 Incident Timeline & Replay")
+    
+    incidents = st.session_state.storage.get_incidents()
+    
+    if not incidents:
+        st.info("No recorded incidents yet. Data is recorded when anomalies are detected.")
+        return
+
+    # Select incident
+    incident_options = {f"{i['start_time']} - {i['summary']}": i for i in incidents}
+    selected_label = st.selectbox("Select Incident to Replay", list(incident_options.keys()))
+    
+    if selected_label:
+        incident = incident_options[selected_label]
+        st.markdown(f"### Incident Details")
+        st.json(json.loads(incident['json_data']))
+        
+        # Load historical metrics for this period
+        history = st.session_state.storage.get_metrics_for_period(incident['start_time'], incident['end_time'])
+        
+        if history:
+            st.subheader("📈 Metric Replay")
+            h_df = pd.DataFrame(history)
+            
+            # Re-parse JSON data if needed or use columns
+            st.line_chart(h_df[['cpu_percent', 'memory_percent', 'disk_percent']])
+            
+            # Show top processes at peak
+            peak_row = h_df.iloc[h_df['cpu_percent'].idxmax()]
+            st.markdown(f"**Peak Resource Usage observed at {peak_row['timestamp']}**")
+            try:
+                peak_data = json.loads(peak_row['json_data'])
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("Top CPU processes at peak:")
+                    st.table(pd.DataFrame(peak_data.get('top_cpu_processes', [])))
+                with col2:
+                    st.write("Top Memory processes at peak:")
+                    st.table(pd.DataFrame(peak_data.get('top_memory_processes', [])))
+            except:
+                st.write("Process data unavailable for this record.")
+                
+        # Generate Report Button for past incident
+        if st.button("📄 Generate Report for this Incident"):
+            inc_data = {
+                'start_time': incident['start_time'],
+                'end_time': incident['end_time'],
+                'alerts': json.loads(incident['json_data']),
+                'metrics_history': [json.loads(m['json_data']) for m in history]
+            }
+            report = st.session_state.explainer.generate_incident_report(inc_data)
+            st.markdown("---")
+            st.markdown(report)
+            st.download_button("📥 Download Report", report, file_name=f"past_incident_{incident['id']}.md")
 
 
 if __name__ == "__main__":

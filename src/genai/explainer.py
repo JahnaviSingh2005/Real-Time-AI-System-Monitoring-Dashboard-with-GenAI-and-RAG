@@ -91,8 +91,25 @@ class AnomalyExplainer:
                 explanation_parts.append(f"- {alert.get('message', 'Unknown alert')}")
             explanation_parts.append("")
         
+        # Top Processes Correlation
+        top_cpu = metrics.get('top_cpu_processes', [])
+        top_mem = metrics.get('top_memory_processes', [])
+        
+        if top_cpu or top_mem:
+            explanation_parts.append("**Top Resource-Consuming Processes:**")
+            if cpu > 70 and top_cpu:
+                explanation_parts.append("*Top CPU Consumers:*")
+                for p in top_cpu[:3]:
+                    explanation_parts.append(f"  - {p['name']} (PID: {p['pid']}): {p['cpu_percent']:.1f}% CPU")
+            
+            if memory > 75 and top_mem:
+                explanation_parts.append("*Top Memory Consumers:*")
+                for p in top_mem[:3]:
+                    explanation_parts.append(f"  - {p['name']} (PID: {p['pid']}): {p['memory_percent']:.1f}% RAM")
+            explanation_parts.append("")
+
         # Generate insights based on metrics
-        insights = self._generate_insights(cpu, memory, disk)
+        insights = self._generate_insights(cpu, memory, disk, top_cpu, top_mem)
         if insights:
             explanation_parts.append("**Possible Causes:**")
             for insight in insights:
@@ -108,17 +125,24 @@ class AnomalyExplainer:
         
         return "\n".join(explanation_parts)
     
-    def _generate_insights(self, cpu: float, memory: float, disk: float) -> list:
-        """Generate insights based on metric values"""
+    def _generate_insights(self, cpu: float, memory: float, disk: float, 
+                           top_cpu: list = None, top_mem: list = None) -> list:
+        """Generate insights based on metric values and top processes"""
         insights = []
         
         if cpu > 90:
-            insights.append("Extremely high CPU usage detected. Possible runaway process or insufficient computing resources.")
+            msg = "Extremely high CPU usage detected."
+            if top_cpu and top_cpu[0]['cpu_percent'] > 50:
+                msg += f" Process '{top_cpu[0]['name']}' is consuming {top_cpu[0]['cpu_percent']:.1f}% CPU."
+            insights.append(msg)
         elif cpu > 70:
             insights.append("Elevated CPU usage. System may be under heavy computational load.")
         
         if memory > 90:
-            insights.append("Critical memory usage. Risk of system slowdown or out-of-memory errors.")
+            msg = "Critical memory usage."
+            if top_mem and top_mem[0]['memory_percent'] > 30:
+                msg += f" Process '{top_mem[0]['name']}' is using {top_mem[0]['memory_percent']:.1f}% of RAM."
+            insights.append(msg)
         elif memory > 75:
             insights.append("High memory consumption. Applications may be using excessive RAM.")
         
@@ -212,6 +236,66 @@ class AnomalyExplainer:
         
         return "\n".join(summary_parts)
 
+
+    def generate_incident_report(self, incident_data: Dict) -> str:
+        """
+        Generate a detailed incident report from gathered data.
+        
+        Args:
+            incident_data: Dictionary containing:
+                - start_time, end_time
+                - alerts (list)
+                - metrics_history (list)
+                - top_processes (list)
+                
+        Returns:
+            Formatted Markdown report
+        """
+        start = incident_data.get('start_time')
+        end = incident_data.get('end_time')
+        alerts = incident_data.get('alerts', [])
+        metrics = incident_data.get('metrics_history', [])
+        
+        report = []
+        report.append(f"# 🛡️ Incident Report: {start} to {end}")
+        report.append(f"**Status:** Resolved (Generated at {datetime.now()})\n")
+        
+        report.append("## 📝 Executive Summary")
+        if alerts:
+            report.append(f"During this period, {len(alerts)} alerts were triggered. ")
+            metrics_df = pd.DataFrame(metrics)
+            if not metrics_df.empty:
+                max_cpu = metrics_df['cpu_percent'].max()
+                max_mem = metrics_df['memory_percent'].max()
+                report.append(f"System experienced peak CPU usage of {max_cpu:.1f}% and peak Memory usage of {max_mem:.1f}%.")
+        else:
+            report.append("Detailed analysis of system behavior during the selected timeframe.")
+        report.append("\n")
+        
+        report.append("## 🕒 Timeline of Events")
+        for alert in alerts[:10]: # Limit to 10 for brevity
+            report.append(f"- **{alert.get('timestamp')}**: {alert.get('message')}")
+        report.append("\n")
+        
+        report.append("## 🔍 Root Cause Analysis")
+        # Extract process correlation if available
+        culprits = set()
+        for m in metrics:
+            for p in m.get('top_cpu_processes', []):
+                if p['cpu_percent'] > 50: culprits.add(p['name'])
+        
+        if culprits:
+            report.append(f"Possible application-level causes identified: **{', '.join(culprits)}**.")
+        else:
+            report.append("No specific process-level culprit identified. Possible system-wide resource contention.")
+        report.append("\n")
+        
+        report.append("## 🛠️ Remediation Steps")
+        report.append("1. **Verify Services**: Ensure all critical services are healthy.")
+        report.append("2. **Resource Scaling**: If this occurs frequently, consider increasing CPU/RAM allocation.")
+        report.append("3. **Log Review**: Check application logs for the identified processes.")
+        
+        return "\n".join(report)
 
 if __name__ == "__main__":
     # Test the explainer

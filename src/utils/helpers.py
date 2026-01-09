@@ -195,7 +195,8 @@ def format_alert_message(alert: Dict) -> str:
     return f"{emoji} **{severity.upper()}** [{time_str}]: {message}"
 
 
-def get_health_status(cpu: float, memory: float, disk: float) -> Dict:
+def get_health_status(cpu: float, memory: float, disk: float, 
+                      cpu_threshold: float = 85.0, mem_threshold: float = 85.0) -> Dict:
     """
     Calculate overall system health status.
     
@@ -203,19 +204,30 @@ def get_health_status(cpu: float, memory: float, disk: float) -> Dict:
         cpu: CPU usage percentage
         memory: Memory usage percentage
         disk: Disk usage percentage
+        cpu_threshold: Custom CPU threshold for warning
+        mem_threshold: Custom Memory threshold for warning
         
     Returns:
         Dictionary with status, score, and message
     """
     # Calculate health score (0-100, where 100 is perfect)
-    cpu_score = max(0, 100 - cpu)
-    memory_score = max(0, 100 - memory)
+    # Penalize more if above threshold
+    cpu_penalty = cpu if cpu < cpu_threshold else cpu + (cpu - cpu_threshold) * 2
+    mem_penalty = memory if memory < mem_threshold else memory + (memory - mem_threshold) * 2
+    
+    cpu_score = max(0, 100 - (cpu_penalty / 100 * 100))
+    memory_score = max(0, 100 - (mem_penalty / 100 * 100))
     disk_score = max(0, 100 - disk)
     
     overall_score = (cpu_score + memory_score + disk_score) / 3
     
     # Determine status
-    if overall_score >= 70:
+    if cpu >= cpu_threshold or memory >= mem_threshold:
+        status = "Critical"
+        emoji = "🔴"
+        color = "red"
+        message = "System resource limits exceeded!"
+    elif overall_score >= 70:
         status = "Healthy"
         emoji = "✅"
         color = "green"
@@ -226,10 +238,10 @@ def get_health_status(cpu: float, memory: float, disk: float) -> Dict:
         color = "orange"
         message = "System is under moderate load"
     else:
-        status = "Critical"
-        emoji = "🔴"
-        color = "red"
-        message = "System is experiencing high resource usage"
+        status = "Degraded"
+        emoji = "🟠"
+        color = "orange"
+        message = "System performance is degraded"
     
     return {
         'status': status,

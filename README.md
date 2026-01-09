@@ -350,6 +350,11 @@ python src/utils/helpers.py
 
 ## 📚 Learning Resources
 
+### Documentation
+- [Core Concepts & Technologies](CONCEPTS.md) - Deep dive into RAG, ML, and Monitoring logic.
+- [Project Summary](PROJECT_SUMMARY.md) - Executive overview of features.
+- [Usage Guide](USAGE_GUIDE.md) - Detail steps for operation.
+
 ### System Monitoring
 - [psutil documentation](https://psutil.readthedocs.io/)
 - Understanding CPU, Memory, Disk metrics

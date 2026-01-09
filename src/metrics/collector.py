@@ -30,13 +30,45 @@ class SystemMetricsCollector:
         self.history_size = history_size
         self.metrics_history: List[Dict] = []
         
-    def collect_current_metrics(self) -> Dict:
+    def get_top_processes(self, n: int = 5, sort_by: str = 'cpu_percent') -> List[Dict]:
         """
-        Collect current system metrics.
+        Get the top N processes by resource usage.
         
+        Args:
+            n: Number of processes to return
+            sort_by: Metric to sort by ('cpu_percent' or 'memory_percent')
+            
         Returns:
-            Dictionary containing current system metrics including CPU, memory, 
-            disk, and network statistics with timestamp
+            List of dictionaries containing process information
+        """
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+            try:
+                # Need to call cpu_percent() at least once to get a non-zero value
+                # but we'll use the one from proc.info if available
+                pinfo = proc.info
+                processes.append({
+                    'pid': pinfo['pid'],
+                    'name': pinfo['name'],
+                    'cpu_percent': pinfo['cpu_percent'],
+                    'memory_percent': pinfo['memory_percent']
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        
+        # Sort and return top N
+        sorted_procs = sorted(processes, key=lambda x: x[sort_by], reverse=True)
+        return sorted_procs[:n]
+
+    def collect_current_metrics(self, top_n_procs: int = 5) -> Dict:
+        """
+        Collect current system metrics including top processes.
+        
+        Args:
+            top_n_procs: Number of top resource-consuming processes to collect
+            
+        Returns:
+            Dictionary containing current system metrics and top processes
         """
         # Get CPU metrics
         cpu_percent = psutil.cpu_percent(interval=1)
@@ -51,6 +83,10 @@ class SystemMetricsCollector:
         
         # Get network metrics
         network = psutil.net_io_counters()
+        
+        # Get top processes
+        top_cpu_procs = self.get_top_processes(n=top_n_procs, sort_by='cpu_percent')
+        top_mem_procs = self.get_top_processes(n=top_n_procs, sort_by='memory_percent')
         
         # Compile all metrics
         metrics = {
@@ -67,9 +103,12 @@ class SystemMetricsCollector:
             'disk_total_gb': disk.total / (1024**3),
             'network_bytes_sent_mb': network.bytes_sent / (1024**2),  # Convert to MB
             'network_bytes_recv_mb': network.bytes_recv / (1024**2),
+            'top_cpu_processes': top_cpu_procs,
+            'top_memory_processes': top_mem_procs
         }
         
-        # Add to history
+        # Add to history (remove heavy process data from history to save memory if needed)
+        # For now, keep it for replay features
         self.metrics_history.append(metrics)
         
         # Keep only recent history
