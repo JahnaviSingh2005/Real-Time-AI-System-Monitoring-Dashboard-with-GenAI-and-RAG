@@ -348,29 +348,24 @@ python src/utils/helpers.py
 - [ ] Cloud deployment guide
 - [ ] API endpoints
 
-## 📚 Learning Resources
+## 📖 General Documentation & Learning Resources
 
-### Documentation
-- [Core Concepts & Technologies](CONCEPTS.md) - Deep dive into RAG, ML, and Monitoring logic.
-- [Project Summary](PROJECT_SUMMARY.md) - Executive overview of features.
-- [Usage Guide](USAGE_GUIDE.md) - Detail steps for operation.
+### 🖥️ Dashboard & UI
+- **[Streamlit Documentation](https://docs.streamlit.io/)**: Official guide for the dashboard framework.
+- **[Plotly Python Documentation](https://plotly.com/python/)**: Guide for creating interactive gauges and time-series charts.
 
-### System Monitoring
-- [psutil documentation](https://psutil.readthedocs.io/)
-- Understanding CPU, Memory, Disk metrics
+### ⚙️ System Monitoring
+- **[psutil Documentation](https://psutil.readthedocs.io/)**: Learn about the cross-platform library used for system metrics.
+- **[System Monitoring Best Practices](https://www.datadoghq.com/blog/monitoring-101-collecting-data/)**: General concepts of system observability.
 
-### Machine Learning
-- [Isolation Forest paper](https://cs.nju.edu.cn/zhouzh/zhouzh.files/publication/icdm08b.pdf)
-- Anomaly detection techniques
+### 🧠 Artificial Intelligence & ML
+- **[Isolation Forest (Scikit-Learn)](https://scikit-learn.org/stable/modules/outlier_detection.html#isolation-forest)**: Understanding the algorithm used for anomaly detection.
+- **[Hugging Face Transformers](https://huggingface.co/docs/transformers/index)**: Resources for running local, CPU-friendly language models.
 
-### RAG
-- [ChromaDB docs](https://docs.trychroma.com/)
-- [Sentence Transformers](https://www.sbert.net/)
-- Vector databases and embeddings
-
-### Streamlit
-- [Streamlit documentation](https://docs.streamlit.io/)
-- Building interactive dashboards
+### 📚 RAG & Vector Databases
+- **[ChromaDB Documentation](https://docs.trychroma.com/)**: Deep dive into the vector database used for incident storage.
+- **[Retrieval-Augmented Generation (RAG) Explained](https://research.ibm.com/blog/retrieval-augmented-generation-RAG)**: Comprehensive overview of combining LLMs with vector search.
+- **[Sentence Transformers](https://www.sbert.net/)**: How text data is converted into high-dimensional embeddings.
 
 ## 🤝 Contributing
 
