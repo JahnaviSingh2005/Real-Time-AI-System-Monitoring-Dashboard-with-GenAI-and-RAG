@@ -22,6 +22,7 @@ sentence-transformers
 # GenAI - Using free/local models (optional, can add later)
 # transformers
 # torch
+google-generativeai
 
 # Utilities
 python-dotenv

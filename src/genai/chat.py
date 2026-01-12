@@ -8,24 +8,27 @@ about the system using RAG for context retrieval.
 from typing import List, Dict, Optional
 from datetime import datetime
 from .rag_system import RAGSystem
+from .gemini_llm import GeminiLLM
 
 
 class ChatInterface:
     """
     Chat interface for asking questions about system monitoring.
     
-    Uses RAG to provide context-aware responses about system health,
-    past incidents, and troubleshooting steps.
+    Uses RAG to provide context-aware responses and Gemini for 
+    high-quality AI generation.
     """
     
-    def __init__(self, rag_system: RAGSystem):
+    def __init__(self, rag_system: RAGSystem, llm: Optional[GeminiLLM] = None):
         """
         Initialize chat interface.
         
         Args:
             rag_system: RAG system for retrieving relevant context
+            llm: Gemini LLM for generating responses
         """
         self.rag_system = rag_system
+        self.llm = llm
         self.chat_history: List[Dict] = []
         
         # Predefined responses for common questions
@@ -167,14 +170,39 @@ You can ask: "Show me similar past incidents" or "What happened before with high
             'message': user_message
         })
         
+        response = None
         user_message_lower = user_message.lower()
         
-        # Check for knowledge base matches
-        response = self._check_knowledge_base(user_message_lower)
+        # If Gemini is configured, use it with RAG context
+        if self.llm and self.llm.is_configured:
+            # 1. Get context from RAG
+            rag_context = ""
+            if any(word in user_message_lower for word in ['similar', 'past', 'before', 'history']):
+                if current_metrics:
+                    rag_context = self.rag_system.get_context_for_anomaly(current_metrics)
+                else:
+                    incidents = self.rag_system.search_similar_incidents(user_message, n_results=3)
+                    if incidents:
+                        rag_context = "Found similar past incidents:\n" + "\n".join([f"- {inc['description']}" for inc in incidents])
+            
+            # 2. Add current metrics context if available
+            metrics_context = ""
+            if current_metrics:
+                metrics_context = f"Current System Stats: CPU {current_metrics.get('cpu_percent')}% , Mem {current_metrics.get('memory_percent')}% , Disk {current_metrics.get('disk_percent')}%"
+            
+            full_context = f"{metrics_context}\n{rag_context}"
+            
+            # 3. Generate response using Gemini
+            response = self.llm.generate_chat_response(self.chat_history[:-1], user_message, full_context)
         
-        # If no knowledge base match, try RAG search
+        # Fallback to internal knowledge base if Gemini failed or is not available
         if not response:
-            response = self._search_with_rag(user_message, current_metrics)
+            # Check for knowledge base matches
+            response = self._check_knowledge_base(user_message_lower)
+            
+            # If no knowledge base match, try RAG search
+            if not response:
+                response = self._search_with_rag(user_message, current_metrics)
         
         # Add response to history
         self.chat_history.append({

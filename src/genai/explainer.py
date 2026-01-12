@@ -6,6 +6,8 @@ explanations for system anomalies. Uses CPU-friendly models.
 """
 
 from typing import Dict, Optional
+from datetime import datetime
+import pandas as pd
 from transformers import pipeline
 import warnings
 
@@ -202,7 +204,6 @@ class AnomalyExplainer:
         if not metrics_history:
             return "No historical data available for analysis."
         
-        import pandas as pd
         df = pd.DataFrame(metrics_history)
         
         summary_parts = []

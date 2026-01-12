@@ -140,6 +140,76 @@ class SystemMetricsCollector:
             return self.metrics_history[-1]
         return {}
     
+    def get_storage_analysis(self, path: str = ".", n_files: int = 10, depth: int = 1) -> Dict:
+        """
+        Analyze storage usage in the specified path.
+        
+        Args:
+            path: Directory path to analyze
+            n_files: Number of top large files to return
+            depth: How many levels deep to scan
+            
+        Returns:
+            Dictionary containing disk partitions and largest files
+        """
+        import os
+        
+        # 1. Get partition info
+        partitions = []
+        for part in psutil.disk_partitions():
+            try:
+                # Check if drive is ready (important for Windows)
+                if 'cdrom' in part.opts or part.fstype == '':
+                    continue
+                usage = psutil.disk_usage(part.mountpoint)
+                partitions.append({
+                    'device': part.device,
+                    'mountpoint': part.mountpoint,
+                    'fstype': part.fstype,
+                    'total_gb': usage.total / (1024**3),
+                    'used_gb': usage.used / (1024**3),
+                    'free_gb': usage.free / (1024**3),
+                    'percent': usage.percent
+                })
+            except (PermissionError, OSError):
+                continue
+                
+        # 2. Get largest files in specified path
+        large_files = []
+        try:
+            target_path = os.path.abspath(path)
+            # Use a faster scan approach
+            for root, dirs, files in os.walk(target_path):
+                # Calculate current depth
+                rel_path = os.path.relpath(root, target_path)
+                current_depth = 0 if rel_path == "." else rel_path.count(os.sep) + 1
+                
+                if current_depth > depth:
+                    del dirs[:] # Don't go deeper
+                    continue
+                    
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        size = os.path.getsize(fp)
+                        large_files.append({
+                            'name': f,
+                            'path': fp,
+                            'size_mb': size / (1024**2)
+                        })
+                    except (OSError, PermissionError):
+                        continue
+        except Exception as e:
+            print(f"Storage scan error: {e}")
+            
+        # Sort and take top N
+        large_files = sorted(large_files, key=lambda x: x['size_mb'], reverse=True)[:n_files]
+        
+        return {
+            'partitions': partitions,
+            'large_files': large_files
+        }
+
     def get_average_metrics(self, last_n: int = 10) -> Dict:
         """
         Calculate average metrics over the last N readings.

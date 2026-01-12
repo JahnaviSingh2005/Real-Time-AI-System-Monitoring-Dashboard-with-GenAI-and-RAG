@@ -27,6 +27,7 @@ from src.anomaly.rule_based import RuleBasedAlertSystem
 from src.anomaly.ml_detector import MLAnomalyDetector
 from src.genai.explainer import AnomalyExplainer
 from src.genai.rag_system import RAGSystem
+from src.genai.gemini_llm import GeminiLLM
 from src.genai.chat import ChatInterface
 from src.utils.helpers import (
     create_gauge_chart, create_time_series_chart, create_multi_metric_chart,
@@ -107,18 +108,18 @@ def initialize_session_state():
     if 'ml_detector' not in st.session_state:
         st.session_state.ml_detector = MLAnomalyDetector()
     
+    # LAZY LOADING: Don't load heavy AI models until needed
     if 'explainer' not in st.session_state:
-        st.session_state.explainer = AnomalyExplainer()
+        st.session_state.explainer = None  # Load on demand
     
     if 'rag_system' not in st.session_state:
-        st.session_state.rag_system = RAGSystem(persist_directory="./data/chroma_db")
-        # Load incidents on first run
-        if not hasattr(st.session_state, 'incidents_loaded'):
-            st.session_state.rag_system.load_incidents_from_json("./data/incidents.json")
-            st.session_state.incidents_loaded = True
+        st.session_state.rag_system = None  # Load on demand
     
+    if 'gemini_llm' not in st.session_state:
+        st.session_state.gemini_llm = GeminiLLM()
+        
     if 'chat_interface' not in st.session_state:
-        st.session_state.chat_interface = ChatInterface(st.session_state.rag_system)
+        st.session_state.chat_interface = None  # Load when chat is accessed
     
     if 'storage' not in st.session_state:
         st.session_state.storage = IncidentStorage()
@@ -146,6 +147,39 @@ def main():
     
     # Sidebar
     with st.sidebar:
+        st.header("✨ AI Configuration")
+        gemini_key = st.text_input("Gemini API Key", type="password", help="Enter your Google AI API key to enable advanced AI answers.")
+        
+        if gemini_key:
+            # First time configuration or key changed
+            if st.session_state.gemini_llm.api_key != gemini_key:
+                st.session_state.gemini_llm.configure(gemini_key)
+            
+            if st.session_state.gemini_llm.is_configured:
+                # Get actual available models for this key
+                available_models = st.session_state.gemini_llm.get_available_models()
+                if not available_models:
+                    available_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+                
+                selected_model = st.selectbox(
+                    "Gemini Model",
+                    available_models,
+                    index=0 if st.session_state.gemini_llm.model_name not in available_models else available_models.index(st.session_state.gemini_llm.model_name),
+                    help="Available models for your API key."
+                )
+                
+                # Update model if changed
+                if st.session_state.gemini_llm.model_name != selected_model:
+                    st.session_state.gemini_llm.configure(gemini_key, selected_model)
+                
+                st.success(f"{selected_model} Active ✅")
+            else:
+                st.error("Invalid API Key or connection issue ❌")
+        else:
+            if not st.session_state.gemini_llm.is_configured:
+                st.info("💡 Enter API key to unlock advanced AI generation.")
+
+        st.divider()
         st.header("⚙️ Global Settings")
         
         # Refresh interval
@@ -190,10 +224,13 @@ def main():
         st.text(f"CPUs: {sys_info.get('cpu_count', 0)}")
         st.text(f"RAM: {sys_info.get('total_memory_gb', 0):.1f} GB")
         
-        # RAG stats
+        # RAG stats (only if loaded)
         st.header("📚 Knowledge Base")
-        stats = st.session_state.rag_system.get_statistics()
-        st.text(f"Incidents: {stats['total_incidents']}")
+        if st.session_state.rag_system is not None:
+            stats = st.session_state.rag_system.get_statistics()
+            st.text(f"Incidents: {stats['total_incidents']}")
+        else:
+            st.text("Not loaded yet (loads when chat is used)")
     
     # Create tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -360,9 +397,78 @@ def show_live_monitoring():
             st.metric("Network Sent (MB)", f"{current_metrics['network_bytes_sent_mb']:.2f}")
             st.metric("Network Received (MB)", f"{current_metrics['network_bytes_recv_mb']:.2f}")
 
+    # Storage Analysis
+    with st.expander("💾 Storage Analysis"):
+        # First get partitions to show in selector
+        raw_storage_data = st.session_state.metrics_collector.get_storage_analysis()
+        
+        st.subheader("💿 Disk Partitions & Devices")
+        if raw_storage_data['partitions']:
+            df_parts = pd.DataFrame(raw_storage_data['partitions'])
+            st.table(df_parts[['device', 'mountpoint', 'fstype', 'total_gb', 'used_gb', 'percent']])
+            
+            # Drive selector for detailed scan
+            st.divider()
+            st.subheader("🔍 Deep Scan Per Drive")
+            
+            col_drive, col_depth = st.columns([0.7, 0.3])
+            with col_drive:
+                drive_options = {f"{p['device']} ({p['mountpoint']})": p['mountpoint'] for p in raw_storage_data['partitions']}
+                selected_drive_label = st.selectbox("Select Drive/Device to Scan", list(drive_options.keys()))
+                selected_path = drive_options[selected_drive_label]
+            
+            with col_depth:
+                scan_depth = st.slider("Scan Depth", 1, 3, 1, help="Higher depth finds more files but is slower.")
+            
+            if st.button("🚀 Start Disk Scan"):
+                with st.spinner(f"Scanning {selected_path}..."):
+                    scan_results = st.session_state.metrics_collector.get_storage_analysis(
+                        path=selected_path, 
+                        n_files=15, 
+                        depth=scan_depth
+                    )
+                    
+                    if scan_results['large_files']:
+                        st.success(f"Top 15 Largest Files on {selected_path}:")
+                        df_scan = pd.DataFrame(scan_results['large_files'])
+                        # Convert MB to GB for display
+                        df_scan['size_gb'] = df_scan['size_mb'] / 1024
+                        st.table(df_scan[['name', 'size_gb', 'path']].rename(columns={'size_gb': 'Size (GB)'}).style.format({"Size (GB)": "{:.2f}"}))
+                    else:
+                        st.warning("No files found or access denied.")
+        
+        st.divider()
+        st.subheader("📊 Internal Application Data")
+        app_files = [
+            {"Component": "Metrics Database (SQLite)", "Path": "./data/metrics.db"},
+            {"Component": "Incident Knowledge Base (ChromaDB)", "Path": "./data/chroma_db"},
+            {"Component": "Incident History (JSON)", "Path": "./data/incidents.json"}
+        ]
+        
+        app_storage = []
+        import os
+        for item in app_files:
+            if os.path.exists(item['Path']):
+                if os.path.isfile(item['Path']):
+                    size = os.path.getsize(item['Path']) / (1024**3) # GB
+                else:
+                    # Directory size
+                    size = sum(os.path.getsize(os.path.join(dirpath, filename)) 
+                              for dirpath, dirnames, filenames in os.walk(item['Path']) 
+                              for filename in filenames) / (1024**3) # GB
+                app_storage.append({"Component": item['Component'], "Size (GB)": f"{size:.4f}"})
+        
+        if app_storage:
+            st.table(pd.DataFrame(app_storage))
+
 
 def show_anomaly_detection():
     """Display anomaly detection tab with incident tracking"""
+    
+    # LAZY LOAD: Initialize explainer only when this tab is accessed
+    if st.session_state.explainer is None:
+        with st.spinner("Loading AI Explainer (first time only)..."):
+            st.session_state.explainer = AnomalyExplainer()
     
     st.header("🔍 Anomaly Detection")
     
@@ -461,8 +567,29 @@ def show_anomaly_detection():
 def show_chat_interface():
     """Display chat interface tab"""
     
+    # LAZY LOAD: Initialize RAG and chat interface only when this tab is accessed
+    if st.session_state.rag_system is None:
+        with st.spinner("Loading Knowledge Base (first time only)..."):
+            st.session_state.rag_system = RAGSystem(persist_directory="./data/chroma_db")
+            if not hasattr(st.session_state, 'incidents_loaded'):
+                st.session_state.rag_system.load_incidents_from_json("./data/incidents.json")
+                st.session_state.incidents_loaded = True
+    
+    if st.session_state.chat_interface is None:
+        st.session_state.chat_interface = ChatInterface(
+            st.session_state.rag_system, 
+            st.session_state.gemini_llm
+        )
+    
     st.header("💬 AI Chat Assistant")
-    st.markdown("Ask questions about your system, past incidents, or troubleshooting tips.")
+    col_h, col_b = st.columns([0.8, 0.2])
+    with col_h:
+        st.markdown("Ask questions about your system, past incidents, or troubleshooting tips.")
+    with col_b:
+        if st.button("🗑️ Clear Chat"):
+            st.session_state.chat_messages = []
+            st.session_state.chat_interface.clear_history()
+            st.rerun()
     
     # Display chat history
     for msg in st.session_state.chat_messages:
