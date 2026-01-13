@@ -9,6 +9,19 @@ import google.generativeai as genai
 import os
 from typing import Optional, List, Dict
 
+# System instruction for the AI assistant
+SYSTEM_INSTRUCTION = """You are an expert AI System Monitoring Assistant. Your role is to:
+1. Answer questions about the system's current performance using the live metrics provided
+2. Help troubleshoot CPU, memory, disk, and network issues
+3. Provide actionable recommendations based on the current system state
+4. Explain what different metrics mean and when they're concerning
+5. Help users understand and manage running processes
+
+Always use the CURRENT LIVE SYSTEM METRICS provided in the context to give accurate, real-time answers.
+Be concise but informative. Use bullet points and formatting for clarity.
+If you don't have enough information, say so and suggest what to check."""
+
+
 class GeminiLLM:
     """
     Wrapper for Google Gemini API.
@@ -36,7 +49,17 @@ class GeminiLLM:
             if model_name:
                 self.model_name = model_name
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel(self.model_name)
+            
+            # Create model with system instruction for supported models
+            try:
+                self.model = genai.GenerativeModel(
+                    self.model_name,
+                    system_instruction=SYSTEM_INSTRUCTION
+                )
+            except Exception:
+                # Fallback for models that don't support system_instruction
+                self.model = genai.GenerativeModel(self.model_name)
+                
             self.api_key = api_key
             self.is_configured = True
             return True
@@ -79,7 +102,7 @@ class GeminiLLM:
         if context:
             full_prompt = f"Context:\n{context}\n\n"
             
-        full_prompt += f"System Monitoring Assistant Instruction: You are an expert system administrator and AI assistant for system monitoring. Use the context provided to answer the user's question accurately and helpfully. If no specific context is provided, use your general knowledge but keep it relevant to system monitoring.\n\nUser Question: {prompt}"
+        full_prompt += f"User Question: {prompt}"
         
         try:
             response = self.model.generate_content(full_prompt)
@@ -97,19 +120,30 @@ class GeminiLLM:
             
         # Convert history format to Gemini format
         gemini_history = []
-        for msg in history[-10:]: # Last 10 messages for context
+        for msg in history[-10:]:  # Last 10 messages for context
             role = "user" if msg['role'] == 'user' else "model"
             gemini_history.append({"role": role, "parts": [msg['message']]})
             
-        chat = self.model.start_chat(history=gemini_history)
-        
-        prompt = user_message
-        if context:
-            prompt = f"Additional Context for this message:\n{context}\n\n{user_message}"
-            
         try:
+            # Start chat with history
+            chat = self.model.start_chat(history=gemini_history)
+            
+            # Build the prompt with context
+            prompt = ""
+            if context:
+                prompt = f"CURRENT SYSTEM DATA:\n{context}\n\nUSER QUESTION: {user_message}"
+            else:
+                prompt = user_message
+                
             response = chat.send_message(prompt)
             return response.text
+            
         except Exception as e:
-            print(f"Error in Gemini chat: {str(e)}")
+            error_msg = str(e)
+            print(f"Error in Gemini chat: {error_msg}")
+            
+            # For ALL errors, return None to allow fallback to local analysis
+            # This ensures the app works even when Gemini is unavailable
+            # The local analysis will handle: storage, processes, cleanup, status queries
             return None
+

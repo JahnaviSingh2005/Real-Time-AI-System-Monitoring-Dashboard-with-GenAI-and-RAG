@@ -28,6 +28,7 @@ from src.anomaly.ml_detector import MLAnomalyDetector
 from src.genai.explainer import AnomalyExplainer
 from src.genai.rag_system import RAGSystem
 from src.genai.gemini_llm import GeminiLLM
+from src.genai.openai_llm import OpenAILLM
 from src.genai.chat import ChatInterface
 from src.utils.helpers import (
     create_gauge_chart, create_time_series_chart, create_multi_metric_chart,
@@ -117,6 +118,15 @@ def initialize_session_state():
     
     if 'gemini_llm' not in st.session_state:
         st.session_state.gemini_llm = GeminiLLM()
+    
+    if 'openai_llm' not in st.session_state:
+        st.session_state.openai_llm = OpenAILLM()
+    
+    if 'active_llm' not in st.session_state:
+        st.session_state.active_llm = None  # Will be set when API key is entered
+    
+    if 'ai_provider' not in st.session_state:
+        st.session_state.ai_provider = "Gemini"  # Default provider
         
     if 'chat_interface' not in st.session_state:
         st.session_state.chat_interface = None  # Load when chat is accessed
@@ -148,36 +158,81 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("✨ AI Configuration")
-        gemini_key = st.text_input("Gemini API Key", type="password", help="Enter your Google AI API key to enable advanced AI answers.")
         
-        if gemini_key:
-            # First time configuration or key changed
-            if st.session_state.gemini_llm.api_key != gemini_key:
-                st.session_state.gemini_llm.configure(gemini_key)
+        # AI Provider Selection
+        ai_provider = st.radio(
+            "Select AI Provider",
+            ["Gemini", "OpenAI", "None (Local Only)"],
+            index=["Gemini", "OpenAI", "None (Local Only)"].index(st.session_state.ai_provider),
+            horizontal=True,
+            help="Choose your AI provider or use local analysis only"
+        )
+        st.session_state.ai_provider = ai_provider
+        
+        # Gemini Configuration
+        if ai_provider == "Gemini":
+            gemini_key = st.text_input("Gemini API Key", type="password", help="Enter your Google AI API key")
             
-            if st.session_state.gemini_llm.is_configured:
-                # Get actual available models for this key
-                available_models = st.session_state.gemini_llm.get_available_models()
-                if not available_models:
-                    available_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+            if gemini_key:
+                if st.session_state.gemini_llm.api_key != gemini_key:
+                    st.session_state.gemini_llm.configure(gemini_key)
                 
-                selected_model = st.selectbox(
-                    "Gemini Model",
-                    available_models,
-                    index=0 if st.session_state.gemini_llm.model_name not in available_models else available_models.index(st.session_state.gemini_llm.model_name),
-                    help="Available models for your API key."
-                )
-                
-                # Update model if changed
-                if st.session_state.gemini_llm.model_name != selected_model:
-                    st.session_state.gemini_llm.configure(gemini_key, selected_model)
-                
-                st.success(f"{selected_model} Active ✅")
+                if st.session_state.gemini_llm.is_configured:
+                    available_models = st.session_state.gemini_llm.get_available_models()
+                    if not available_models:
+                        available_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+                    
+                    selected_model = st.selectbox(
+                        "Gemini Model",
+                        available_models,
+                        index=0 if st.session_state.gemini_llm.model_name not in available_models else available_models.index(st.session_state.gemini_llm.model_name)
+                    )
+                    
+                    if st.session_state.gemini_llm.model_name != selected_model:
+                        st.session_state.gemini_llm.configure(gemini_key, selected_model)
+                    
+                    st.success(f"✅ {selected_model} Active")
+                    st.session_state.active_llm = st.session_state.gemini_llm
+                else:
+                    st.error("❌ Invalid API Key")
+                    st.session_state.active_llm = None
             else:
-                st.error("Invalid API Key or connection issue ❌")
+                st.info("💡 Enter Gemini API key for AI features")
+                st.session_state.active_llm = None
+        
+        # OpenAI Configuration
+        elif ai_provider == "OpenAI":
+            openai_key = st.text_input("OpenAI API Key", type="password", help="Enter your OpenAI API key")
+            
+            if openai_key:
+                if st.session_state.openai_llm.api_key != openai_key:
+                    st.session_state.openai_llm.configure(openai_key)
+                
+                if st.session_state.openai_llm.is_configured:
+                    available_models = st.session_state.openai_llm.get_available_models()
+                    
+                    selected_model = st.selectbox(
+                        "OpenAI Model",
+                        available_models,
+                        index=available_models.index(st.session_state.openai_llm.model_name) if st.session_state.openai_llm.model_name in available_models else 0
+                    )
+                    
+                    if st.session_state.openai_llm.model_name != selected_model:
+                        st.session_state.openai_llm.configure(openai_key, selected_model)
+                    
+                    st.success(f"✅ {selected_model} Active")
+                    st.session_state.active_llm = st.session_state.openai_llm
+                else:
+                    st.error("❌ Invalid API Key or OpenAI not installed")
+                    st.session_state.active_llm = None
+            else:
+                st.info("💡 Enter OpenAI API key for AI features")
+                st.session_state.active_llm = None
+        
+        # No AI - Local Only
         else:
-            if not st.session_state.gemini_llm.is_configured:
-                st.info("💡 Enter API key to unlock advanced AI generation.")
+            st.info("🔧 Using local analysis only (no API needed)")
+            st.session_state.active_llm = None
 
         st.divider()
         st.header("⚙️ Global Settings")
@@ -575,10 +630,14 @@ def show_chat_interface():
                 st.session_state.rag_system.load_incidents_from_json("./data/incidents.json")
                 st.session_state.incidents_loaded = True
     
-    if st.session_state.chat_interface is None:
+    # Use the active LLM (Gemini, OpenAI, or None)
+    active_llm = st.session_state.active_llm
+    
+    # Re-create chat interface if LLM changed or first time
+    if st.session_state.chat_interface is None or st.session_state.chat_interface.llm != active_llm:
         st.session_state.chat_interface = ChatInterface(
             st.session_state.rag_system, 
-            st.session_state.gemini_llm
+            active_llm
         )
     
     st.header("💬 AI Chat Assistant")
@@ -629,6 +688,7 @@ def show_chat_interface():
     st.divider()
     st.subheader("Quick Questions")
     
+    # Row 1
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -652,6 +712,36 @@ def show_chat_interface():
     with col3:
         if st.button("📚 Similar incidents"):
             prompt = "Show me similar past incidents"
+            st.session_state.chat_messages.append({'role': 'user', 'content': prompt})
+            current_metrics = st.session_state.metrics_collector.get_latest_metrics()
+            response = st.session_state.chat_interface.process_message(prompt, current_metrics)
+            st.session_state.chat_messages.append({'role': 'assistant', 'content': response})
+            st.rerun()
+    
+    # Row 2 - Storage and Process Analysis
+    col4, col5, col6 = st.columns(3)
+    
+    with col4:
+        if st.button("💿 Analyze Storage"):
+            prompt = "Analyze my storage usage"
+            st.session_state.chat_messages.append({'role': 'user', 'content': prompt})
+            current_metrics = st.session_state.metrics_collector.get_latest_metrics()
+            response = st.session_state.chat_interface.process_message(prompt, current_metrics)
+            st.session_state.chat_messages.append({'role': 'assistant', 'content': response})
+            st.rerun()
+    
+    with col5:
+        if st.button("🔝 Top Processes"):
+            prompt = "Show me top processes consuming resources"
+            st.session_state.chat_messages.append({'role': 'user', 'content': prompt})
+            current_metrics = st.session_state.metrics_collector.get_latest_metrics()
+            response = st.session_state.chat_interface.process_message(prompt, current_metrics)
+            st.session_state.chat_messages.append({'role': 'assistant', 'content': response})
+            st.rerun()
+    
+    with col6:
+        if st.button("🧹 Cleanup Suggestions"):
+            prompt = "Give me cleanup suggestions to free space"
             st.session_state.chat_messages.append({'role': 'user', 'content': prompt})
             current_metrics = st.session_state.metrics_collector.get_latest_metrics()
             response = st.session_state.chat_interface.process_message(prompt, current_metrics)
