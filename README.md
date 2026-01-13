@@ -21,6 +21,7 @@ A comprehensive, production-ready system monitoring dashboard that combines real
 - **Real-Time Alerts**: Instant notification of issues
 
 ### 🤖 AI-Powered Insights
+- **Multi-Provider Support**: Choose between Gemini, OpenAI, or Local-only mode
 - **GenAI Explanations**: Natural language explanations of anomalies
 - **Root Cause Analysis**: Intelligent suggestions for possible causes
 - **Actionable Recommendations**: Step-by-step troubleshooting guidance
@@ -34,9 +35,11 @@ A comprehensive, production-ready system monitoring dashboard that combines real
 
 ### 💬 Interactive Chat Assistant
 - **Natural Language**: Ask questions in plain English
-- **Contextual Responses**: Uses current system state for relevant answers
-- **Built-in Knowledge**: Comprehensive information about metrics
-- **Historical Queries**: Search and analyze past incidents
+- **Live Metrics Analysis**: Real-time storage, CPU, memory analysis
+- **Process Monitoring**: View top resource-consuming processes
+- **Cleanup Suggestions**: Personalized disk cleanup recommendations
+- **Works Offline**: Core features work without API keys
+- **Quick Action Buttons**: One-click access to common queries
 
 ## 🏗️ Architecture
 
@@ -63,9 +66,14 @@ A comprehensive, production-ready system monitoring dashboard that combines real
                 │                        │
                 └────────┬───────────────┘
                          │
-                ┌────────▼──────────┐
-                │  Chat Interface   │
-                └───────────────────┘
+        ┌────────────────▼────────────────┐
+        │         Chat Interface          │
+        │  ┌─────────┐  ┌─────────────┐   │
+        │  │ Gemini  │  │   OpenAI    │   │
+        │  │   LLM   │  │    LLM      │   │
+        │  └─────────┘  └─────────────┘   │
+        │         Local Analysis          │
+        └─────────────────────────────────┘
 ```
 
 ## 📁 Project Structure
@@ -77,6 +85,9 @@ AI System Monitoring/
 ├── requirements.txt            # Python dependencies
 ├── .env.example               # Environment configuration template
 ├── README.md                  # This file
+├── QUICKSTART.md              # Quick start guide
+├── ARCHITECTURE.md            # Detailed architecture documentation
+├── USAGE_GUIDE.md             # Comprehensive usage guide
 │
 ├── src/                       # Source code
 │   ├── __init__.py
@@ -92,17 +103,21 @@ AI System Monitoring/
 │   │
 │   ├── genai/                 # AI components
 │   │   ├── __init__.py
-│   │   ├── explainer.py       # GenAI explanations
-│   │   ├── rag_system.py      # RAG implementation
-│   │   └── chat.py            # Chat interface
+│   │   ├── explainer.py       # GenAI explanations & incident reports
+│   │   ├── rag_system.py      # RAG implementation (ChromaDB)
+│   │   ├── gemini_llm.py      # Google Gemini integration
+│   │   ├── openai_llm.py      # OpenAI ChatGPT integration
+│   │   └── chat.py            # Chat interface with live analysis
 │   │
 │   └── utils/                 # Utilities
 │       ├── __init__.py
-│       └── helpers.py         # Visualization and formatting helpers
+│       ├── helpers.py         # Visualization and formatting helpers
+│       └── storage.py         # SQLite storage for metrics & incidents
 │
 └── data/                      # Data storage
     ├── incidents.json         # Sample incident dataset
-    └── chroma_db/            # Vector database (auto-created)
+    ├── metrics.db             # SQLite database (auto-created)
+    └── chroma_db/             # Vector database (auto-created)
 ```
 
 ## 🚀 Getting Started
@@ -195,12 +210,17 @@ AI System Monitoring/
 
 ### Example Questions for Chat
 
-- "What is high CPU usage?"
+**Live Analysis (works without API):**
+- "Show system status"
+- "Analyze my storage"
+- "Show top processes"
+- "Give me cleanup suggestions"
+
+**AI-Powered (requires API key):**
+- "Write a poem about system monitoring"
+- "Explain why my CPU is high"
+- "What could cause memory leaks?"
 - "Show me similar past incidents"
-- "What is the current system status?"
-- "How do I fix memory issues?"
-- "Explain anomaly detection"
-- "What can you help me with?"
 
 ## 🔧 Configuration
 
@@ -301,8 +321,11 @@ python src/utils/helpers.py
 | ML Detection | Isolation Forest | Anomaly detection |
 | Vector DB | ChromaDB | Incident storage |
 | Embeddings | sentence-transformers | Text vectorization |
+| AI (Option 1) | Google Gemini | Advanced AI responses |
+| AI (Option 2) | OpenAI GPT | Alternative AI provider |
 | Visualization | Plotly | Interactive charts |
 | Data Processing | pandas, numpy | Data manipulation |
+| Storage | SQLite | Metrics persistence |
 
 ## 💡 Best Practices
 
